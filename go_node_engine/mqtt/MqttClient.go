@@ -1,12 +1,18 @@
 package mqtt
 
 import (
+	"bufio"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"go_node_engine/logger"
 	"go_node_engine/model"
 	"go_node_engine/virtualization"
+	"net"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -192,6 +198,123 @@ func ReportServiceResources(services []model.Resources) {
 	}
 	publishToBrokerFn("jobs/resources", string(jsonmsg))
 
+	// Also derive and publish load metrics (cpu/memory normalized to 0-1 if percentages)
+	ReportServiceLoadMetrics(services)
+}
+
+// ReportServiceLoadMetrics publishes per-instance load metrics (cpu, memory, active connections)
+func ReportServiceLoadMetrics(services []model.Resources) {
+	type LoadMetric struct {
+		JobName           string  `json:"job_name"`
+		InstanceNumber    int     `json:"instance_number"`
+		CpuUsage          float64 `json:"cpu_usage"`
+		MemoryUsage       float64 `json:"memory_usage"`
+		ActiveConnections int     `json:"active_connections"`
+	}
+	type LoadMetricsPayload struct {
+		LoadMetrics []LoadMetric `json:"load_metrics"`
+	}
+	if len(services) == 0 {
+		return
+	}
+	activeConns := countActiveTcpConnections() // node-wide for now
+	metrics := make([]LoadMetric, 0, len(services))
+	for _, svc := range services {
+		cpuF := parseFloatOrZero(svc.Cpu)
+		memF := parseFloatOrZero(svc.Memory)
+		metrics = append(metrics, LoadMetric{
+			JobName:           svc.Sname,
+			InstanceNumber:    svc.Instance,
+			CpuUsage:          cpuF,
+			MemoryUsage:       memF,
+			ActiveConnections: activeConns,
+		})
+	}
+	payload := LoadMetricsPayload{LoadMetrics: metrics}
+	jsonmsg, err := json.Marshal(payload)
+	if err != nil {
+		logger.ErrorLogger().Printf("ERROR: unable to marshal load metrics: %v", err)
+		return
+	}
+	publishToBrokerFn("jobs/load_metrics", string(jsonmsg))
+}
+
+// parseFloatOrZero converts numeric strings or percentages to float64 (0-1 if percent)
+func parseFloatOrZero(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	trimmed := strings.TrimSpace(strings.TrimSuffix(s, "%"))
+	f, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0
+	}
+	if strings.Contains(s, "%") {
+		return f / 100.0
+	}
+	return f
+}
+
+// countActiveTcpConnections returns number of ESTABLISHED TCP sockets (state 01)
+func countActiveTcpConnections() int {
+	files := []string{"/proc/net/tcp", "/proc/net/tcp6"}
+	total := 0
+	for _, f := range files {
+		c, err := countEstablishedInFile(f)
+		if err != nil {
+			return -1
+		}
+		total += c
+	}
+	return total
+}
+
+func countEstablishedInFile(path string) (int, error) {
+	file, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	if !scanner.Scan() { // header
+		return 0, nil
+	}
+	count := 0
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 4 {
+			continue
+		}
+		if fields[3] == "01" { // ESTABLISHED
+			count++
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// hexToIPPort helper (currently unused but kept for future per-instance filtering)
+func hexToIPPort(hexAddr string) (net.IP, int) {
+	parts := strings.Split(hexAddr, ":")
+	if len(parts) != 2 {
+		return nil, 0
+	}
+	ipHex, portHex := parts[0], parts[1]
+	if len(ipHex) == 8 { // IPv4
+		b, err := hex.DecodeString(ipHex)
+		if err != nil {
+			return nil, 0
+		}
+		for i := 0; i < 2; i++ { // reverse byte order
+			b[i], b[3-i] = b[3-i], b[i]
+		}
+		ip := net.IPv4(b[0], b[1], b[2], b[3])
+		p, _ := strconv.ParseInt(portHex, 16, 32)
+		return ip, int(p)
+	}
+	return nil, 0
 }
 
 // ReportNodeInformation reports the information of the node in the broker
