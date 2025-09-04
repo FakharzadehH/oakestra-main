@@ -210,6 +210,7 @@ func ReportServiceLoadMetrics(services []model.Resources) {
 		CpuUsage          float64 `json:"cpu_usage"`
 		MemoryUsage       float64 `json:"memory_usage"`
 		ActiveConnections int     `json:"active_connections"`
+		Timestamp         int64   `json:"timestamp"`
 	}
 	type LoadMetricsPayload struct {
 		LoadMetrics []LoadMetric `json:"load_metrics"`
@@ -219,6 +220,7 @@ func ReportServiceLoadMetrics(services []model.Resources) {
 	}
 	activeConns := countActiveTcpConnections() // node-wide for now
 	metrics := make([]LoadMetric, 0, len(services))
+	now := time.Now().UnixMilli()
 	for _, svc := range services {
 		cpuF := parseFloatOrZero(svc.Cpu)
 		memF := parseFloatOrZero(svc.Memory)
@@ -228,6 +230,7 @@ func ReportServiceLoadMetrics(services []model.Resources) {
 			CpuUsage:          cpuF,
 			MemoryUsage:       memF,
 			ActiveConnections: activeConns,
+			Timestamp:         now,
 		})
 	}
 	payload := LoadMetricsPayload{LoadMetrics: metrics}
