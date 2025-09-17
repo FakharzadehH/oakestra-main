@@ -20,6 +20,7 @@ func TestReportServiceLoadMetricsIncludesConnections(t *testing.T) {
 	if captured == "" {
 		t.Fatalf("expected payload published")
 	}
+	t.Logf("Published payload: %s", captured)
 	if !strings.Contains(captured, "active_connections") {
 		t.Fatalf("missing active_connections field: %s", captured)
 	}
@@ -27,6 +28,7 @@ func TestReportServiceLoadMetricsIncludesConnections(t *testing.T) {
 
 func TestCountActiveTcpConnections(t *testing.T) {
 	c := countActiveTcpConnections()
+	t.Logf("Active TCP connections counted: %d", c)
 	if c < -1 {
 		t.Fatalf("unexpected value %d", c)
 	}

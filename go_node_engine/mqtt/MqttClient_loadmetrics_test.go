@@ -21,6 +21,7 @@ func TestReportServiceLoadMetrics(t *testing.T) {
 	for _, p := range pubs {
 		if p.topic == "jobs/load_metrics" {
 			found = true
+			t.Logf("Published payload: %s", p.payload)
 			var dec struct {
 				LoadMetrics []struct {
 					JobName           string  `json:"job_name"`
@@ -36,6 +37,8 @@ func TestReportServiceLoadMetrics(t *testing.T) {
 			if len(dec.LoadMetrics) != 2 {
 				t.Fatalf("expected 2 metrics got %d", len(dec.LoadMetrics))
 			}
+			t.Logf("Decoded metrics[0]: job=%s inst=%d cpu=%.2f mem=%.2f", dec.LoadMetrics[0].JobName, dec.LoadMetrics[0].InstanceNumber, dec.LoadMetrics[0].CpuUsage, dec.LoadMetrics[0].MemoryUsage)
+			t.Logf("Decoded metrics[1]: job=%s inst=%d cpu=%.2f mem=%.2f", dec.LoadMetrics[1].JobName, dec.LoadMetrics[1].InstanceNumber, dec.LoadMetrics[1].CpuUsage, dec.LoadMetrics[1].MemoryUsage)
 			if dec.LoadMetrics[0].CpuUsage != 0.5 || dec.LoadMetrics[0].MemoryUsage != 0.25 {
 				t.Fatalf("first metric mismatch %+v", dec.LoadMetrics[0])
 			}
